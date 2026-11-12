@@ -103,7 +103,7 @@
 
     <section class="card sticky" aria-labelledby="t-res" aria-live="polite">
       <h2 id="t-res">Seu Top 3</h2>
-      <p class="sub">O Match é a probabilidade estimada pelo modelo de você aprovar o destino.</p>
+      <p class="sub">O Match indica o quanto o destino combina com o seu perfil: é a chance de aprovação estimada pelo modelo, corrigida para uma base equilibrada (50% Sim, 50% Não).</p>
       <div id="resultado"><p class="empty">Preencha o perfil e clique em <b>Recomendar destinos</b>.</p></div>
       <button class="link" id="mais" type="button" hidden>Ver outras 3 sugestões</button>
       <details class="inputs">
@@ -302,6 +302,15 @@ function caixaFoto(nome) {
   return box;
 }
 
+// ---------- Match ----------
+// A base tem só 36,7% de "Sim" (288.756 Sim ÷ 786.940 Sim+Não), o que puxa todas as probabilidades para baixo.
+// O Match corrige esse desequilíbrio: é a probabilidade que o destino teria numa base com 50% Sim e 50% Não.
+const TAXA_SIM_BASE = 288756 / 786940;
+function calcMatch(p) {
+  const b = TAXA_SIM_BASE;
+  return (p * (1 - b)) / (p * (1 - b) + b * (1 - p));
+}
+
 // ---------- resultado ----------
 const pct = x => (x * 100).toFixed(0) + "%";
 let mostrados = new Set();
@@ -338,13 +347,14 @@ function mostrar(novos = true) {
     const match = document.createElement("div"); match.className = "match";
     const topo = document.createElement("div"); topo.className = "match-topo";
     const lab = document.createElement("span"); lab.textContent = "Match";
-    const val = document.createElement("b"); val.textContent = pct(r.prob);
+    const m100 = calcMatch(r.prob);
+    const val = document.createElement("b"); val.textContent = pct(m100);
     topo.append(lab, val);
     const trilho = document.createElement("div"); trilho.className = "trilho";
-    trilho.setAttribute("role", "img"); trilho.setAttribute("aria-label", "Match de " + pct(r.prob));
-    const rota = document.createElement("i"); rota.style.width = pct(r.prob);
+    trilho.setAttribute("role", "img"); trilho.setAttribute("aria-label", "Match de " + pct(m100));
+    const rota = document.createElement("i"); rota.style.width = pct(m100);
     const aviao = document.createElement("span"); aviao.className = "aviao"; aviao.textContent = "✈";
-    aviao.style.left = pct(r.prob);
+    aviao.style.left = pct(m100);
     trilho.append(rota, aviao);
     match.append(topo, trilho);
     const why = document.createElement("div"); why.className = "why";
