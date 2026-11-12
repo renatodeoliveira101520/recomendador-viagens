@@ -53,9 +53,13 @@ SEPARADOR_MULTIPLO = None
 
 # Nomes amigáveis das perguntas (aparecem no formulário e na explicação da recomendação)
 ROTULOS = {"form_a_pt": "Faixa etária do grupo", "form_b_pt": "Orçamento (por pessoa/noite, US$)",
-           "form_c_pt": "Estação do ano", "form_f_pt": "Experiências", "form_g_pt": "Paisagens",
+           "form_c_pt": "Período da viagem", "form_f_pt": "Experiências", "form_g_pt": "Paisagens",
            "form_h_pt": "Nível de atividade", "form_i_pt": "Segurança", "form_j_pt": "Popularidade do destino",
            "form_r_pt": "Para onde quer ir", "form_rr_pt": "Regiões"}
+
+# Como algumas respostas aparecem no formulário e na explicação (o valor do treino continua o mesmo).
+# Estação mostrada como período do ano, para não depender do hemisfério (na base, "Verão" = jun–ago).
+ROTULOS_VALORES = {"form_c_pt": {"Inverno": "Dez–Fev", "Primavera": "Mar–Mai", "Verão": "Jun–Ago", "Outono": "Set–Nov"}}
 
 MIN_USUARIOS_POR_RESPOSTA = 20   # respostas muito raras são ignoradas (evita ruído)
 MIN_AVALIACOES_DESTINO    = 30   # só recomenda destinos com pelo menos N avaliações
@@ -533,7 +537,8 @@ def escolher_top(p, excluir=None, k=None, peso=None, max_pais=None, regioes=None
     return escolhidos
 
 def _rotulo(t):
-    return f"{ROTULOS.get(t[0], t[0])}: {t[1]}"
+    valor = ROTULOS_VALORES.get(t[0], {}).get(t[1], t[1])
+    return f"{ROTULOS.get(t[0], t[0])}: {valor}"
 
 def recomendar(perfil, k=None, excluir=None, peso=None, max_pais=None):
     """
@@ -619,7 +624,9 @@ MAPA_WIDGETS = {}    # widget -> {texto exibido: valor real}
 for col in COLUNAS_PERFIL:
     if col not in opcoes:
         continue
-    mapa = {v.replace(",", " ·"): v for v in sorted(opcoes[col])}   # vírgula quebra o multiselect
+    exibir = ROTULOS_VALORES.get(col, {})
+    ordem = list(exibir) if exibir else sorted(opcoes[col])
+    mapa = {exibir.get(v, v).replace(",", " ·"): v for v in ordem if v in opcoes[col]}   # vírgula quebra o multiselect
     MAPA_WIDGETS[col] = mapa
     dbutils.widgets.multiselect(col, NAO_INF, [NAO_INF] + list(mapa.keys()), ROTULOS.get(col, col))
 print(f"{len(MAPA_WIDGETS)} campos criados no topo do notebook.")

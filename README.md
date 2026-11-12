@@ -117,7 +117,7 @@ As métricas consideram apenas os cerca de 10 destinos que cada viajante avaliou
 - A maioria dos viajantes avaliou apenas 10 destinos, o que limita o quanto o modelo aprende sobre cada pessoa.
 - O ganho sobre a recomendação por popularidade é pequeno: destinos como Grécia, Itália e Japão agradam a quase todos.
 - A pergunta de regiões foi respondida por apenas 21% dos viajantes.
-- A "estação" indica **quando** a pessoa viaja, no calendário do hemisfério norte (a maioria dos respondentes é dos EUA), e não o clima desejado.
+- A pergunta de estação indica **quando** a pessoa viaja, no calendário do hemisfério norte (a maioria dos respondentes é dos EUA), e não o clima desejado. Por isso o formulário mostra o **período do ano** (Dez–Fev, Mar–Mai, Jun–Ago, Set–Nov) em vez do nome da estação.
 - O orçamento é em **dólares, por pessoa e por noite**, conforme o formulário original.
 
 ## Próximos passos

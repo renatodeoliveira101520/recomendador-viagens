@@ -117,8 +117,8 @@ const PERGUNTAS = [
     valores: [["0-19 anos","0-19 anos"],["20-39 anos","20-39 anos"],["40-59 anos","40-59 anos"],["60+ anos","60+ anos"]] },
   { col: "form_b_pt", titulo: "Orçamento", nota: "US$ por pessoa, por noite", multi: true,
     valores: [["até 49","0-49"],["50 a 99","50-99"],["100 a 249","100-249"],["300 ou mais","300+"]] },
-  { col: "form_c_pt", titulo: "Quando pretende viajar", nota: "estações do hemisfério norte", multi: true,
-    valores: [["Dez–Fev (inverno)","Inverno"],["Mar–Mai (primavera)","Primavera"],["Jun–Ago (verão)","Verão"],["Set–Nov (outono)","Outono"]] },
+  { col: "form_c_pt", titulo: "Período da viagem", nota: "meses em que pretende viajar", multi: true,
+    valores: [["Dez–Fev","Inverno"],["Mar–Mai","Primavera"],["Jun–Ago","Verão"],["Set–Nov","Outono"]] },
   { col: "form_f_pt", titulo: "Experiências", multi: true,
     valores: ["Praia","Aventura","Natureza","Cultura","Vida noturna","História","Compras","Gastronomia"].map(v => [v, v]) },
   { col: "form_g_pt", titulo: "Paisagens", multi: true,
@@ -135,6 +135,7 @@ const PERGUNTAS = [
     valores: ["Europa","América do Norte","Caribe","América do Sul","Ásia","Oriente Médio","África","Oceania"].map(v => [v, v]) },
 ];
 const ROTULO = Object.fromEntries(PERGUNTAS.map(p => [p.col, p.titulo]));
+const EXIBIR = Object.fromEntries(PERGUNTAS.map(p => [p.col, Object.fromEntries(p.valores.map(([rot, val]) => [val, rot]))]));
 const IDX = new Map(M.vocab.map(([c, v], j) => [c + "=" + v, j]));
 const estado = Object.fromEntries(PERGUNTAS.map(p => [p.col, new Set()]));
 
@@ -206,7 +207,7 @@ function recomendar(perfil, k = 3, excluir = new Set()) {
     const d = M.dest[c.i];
     const motivos = ativos.map(j => [j, d.wi[j]]).filter(x => x[1] > 0)
       .sort((a, b) => b[1] - a[1]).slice(0, 3)
-      .map(([j]) => (ROTULO[M.vocab[j][0]] || M.vocab[j][0]) + ": " + M.vocab[j][1]);
+      .map(([j]) => { const [c, v] = M.vocab[j]; return (ROTULO[c] || c) + ": " + ((EXIBIR[c] || {})[v] || v); });
     return { i: c.i, destino: d.n, pais: d.p, regiao: d.r, prob: c.p, vsMedia: c.p - d.pop, motivos };
   });
 }
