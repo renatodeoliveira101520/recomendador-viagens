@@ -44,8 +44,15 @@
          display: grid; place-items: center; font-weight: 700; font-size: 17px; }
   .dest { font-weight: 600; font-size: 16px; }
   .meta { color: var(--muted); font-size: 13px; }
-  .bar { height: 6px; background: var(--line); border-radius: 4px; margin: 8px 0 4px; overflow: hidden; }
-  .bar i { display: block; height: 100%; background: var(--accent); }
+  .match { margin: 8px 0 6px; }
+  .match-topo { display: flex; justify-content: space-between; font-size: 13px; color: var(--muted); margin-bottom: 4px; }
+  .match-topo b { color: var(--accent); font-size: 15px; }
+  .trilho { position: relative; height: 22px; }
+  .trilho::before { content: ""; position: absolute; left: 0; right: 0; top: 10px; border-top: 2px dashed var(--line); }
+  .trilho i { position: absolute; left: 0; top: 9px; height: 4px; border-radius: 4px;
+              background: linear-gradient(90deg, #9cc9cc, var(--accent)); }
+  .aviao { position: absolute; top: -1px; transform: translateX(-50%) rotate(0deg); font-size: 20px;
+           line-height: 22px; color: var(--gold); }
   .nums { font-size: 13px; display: flex; gap: 14px; flex-wrap: wrap; }
   .up { color: var(--ok); font-weight: 600; } .down { color: var(--bad); font-weight: 600; }
   .why { margin-top: 6px; display: flex; flex-wrap: wrap; gap: 6px; }
@@ -96,7 +103,7 @@
 
     <section class="card sticky" aria-labelledby="t-res" aria-live="polite">
       <h2 id="t-res">Seu Top 3</h2>
-      <p class="sub">Probabilidade estimada de você aprovar o destino e o quanto ele combina mais com você do que com o viajante médio.</p>
+      <p class="sub">O Match é a probabilidade estimada pelo modelo de você aprovar o destino.</p>
       <div id="resultado"><p class="empty">Preencha o perfil e clique em <b>Recomendar destinos</b>.</p></div>
       <button class="link" id="mais" type="button" hidden>Ver outras 3 sugestões</button>
       <details class="inputs">
@@ -140,7 +147,7 @@ const PERGUNTAS = [
   { col: "form_r_pt", titulo: "Para onde quer ir", multi: false,
     valores: ["Em qualquer lugar","Regiões específicas"].map(v => [v, v]) },
   { col: "form_rr_pt", titulo: "Quais regiões", multi: true, id: "regioes-box",
-    valores: ["Europa","América do Norte","Caribe","América do Sul","Ásia","Oriente Médio","África","Oceania"].map(v => [v, v]) },
+    valores: ["Brasil","América do Sul","Europa","América do Norte","Caribe","Ásia","Oriente Médio","África","Oceania"].map(v => [v, v]) },
 ];
 const ROTULO = Object.fromEntries(PERGUNTAS.map(p => [p.col, p.titulo]));
 const EXIBIR = Object.fromEntries(PERGUNTAS.map(p => [p.col, Object.fromEntries(p.valores.map(([rot, val]) => [val, rot]))]));
@@ -188,12 +195,13 @@ atualizaRegioes();
 
 // ---------- modelo (mesma conta do notebook 05) ----------
 const CORE = PERGUNTAS.map(p => p.col).filter(c => c !== "form_r_pt" && c !== "form_rr_pt");
-function recomendar(perfil, k = 3, excluir = new Set()) {
+// filtro = { regioes: [...], paises: [...] } — regra de negócio aplicada depois do modelo
+function recomendar(perfil, k = 3, excluir = new Set(), filtro = null) {
+  filtro = filtro || { regioes: perfil.form_rr_pt || [], paises: [] };
   const ativos = [];
   for (const [col, vals] of Object.entries(perfil))
     for (const v of vals) { const j = IDX.get(col + "=" + v); if (j !== undefined) ativos.push(j); }
   const basePerfil = ativos.reduce((s, j) => s + M.wPerfil[j], 0);
-  const regioes = perfil.form_rr_pt || [];
   // ajuste contra campeões proporcional às perguntas respondidas (igual ao notebook 05)
   const peso = M.pesoPop * CORE.filter(c => (perfil[c] || []).length).length / CORE.length;
   const cand = M.dest.map((d, i) => {
@@ -201,13 +209,20 @@ function recomendar(perfil, k = 3, excluir = new Set()) {
     for (const j of ativos) logit += d.wi[j];
     const p = 1 / (1 + Math.exp(-logit));
     return { i, p, score: p - peso * d.pop };
-  }).filter(c => !excluir.has(c.i) && (!regioes.length || regioes.includes(M.dest[c.i].r)))
+  }).filter(c => {
+    if (excluir.has(c.i)) return false;
+    if (!filtro.regioes.length && !filtro.paises.length) return true;
+    const d = M.dest[c.i];
+    return filtro.regioes.includes(d.r) || filtro.paises.includes(d.p);
+  })
     .sort((a, b) => b.score - a.score);
   const escolhidos = [], porPais = {};
+  // só um país escolhido (ex.: Brasil): a regra de 1 destino por país não faz sentido
+  const limitePais = (filtro.paises.length && !filtro.regioes.length) ? 0 : M.maxPais;
   for (const c of cand) {
     if (escolhidos.length === k) break;
     const pais = M.dest[c.i].p;
-    if (M.maxPais && (porPais[pais] || 0) >= M.maxPais) continue;
+    if (limitePais && (porPais[pais] || 0) >= limitePais) continue;
     porPais[pais] = (porPais[pais] || 0) + 1;
     escolhidos.push(c);
   }
@@ -296,7 +311,15 @@ function mostrar(novos = true) {
   for (const [col, s] of Object.entries(estado)) if (s.size) perfil[col] = [...s];
   document.getElementById("inputs").textContent = Object.keys(perfil).length
     ? JSON.stringify(perfil, null, 2) : "Nenhuma resposta: o resultado reflete o viajante médio.";
-  const res = recomendar(perfil, 3, mostrados);
+  // "Brasil" não existe nas respostas do Stravl: vai ao modelo como "América do Sul" e vira filtro por país
+  const rr = perfil.form_rr_pt || [];
+  const filtro = { regioes: rr.filter(r => r !== "Brasil"), paises: rr.includes("Brasil") ? ["Brazil"] : [] };
+  if (rr.includes("Brasil")) {
+    perfil.form_rr_pt = [...new Set(filtro.regioes.concat(["América do Sul"]))];
+    document.getElementById("inputs").textContent = JSON.stringify(perfil, null, 2)
+      + "\n\n* Brasil: enviado ao modelo como \"América do Sul\" e aplicado como filtro de país.";
+  }
+  const res = recomendar(perfil, 3, mostrados, filtro);
   res.forEach(r => mostrados.add(r.i));
   document.getElementById("mais").hidden = !res.length;
   const alvo = document.getElementById("resultado");
@@ -312,18 +335,21 @@ function mostrar(novos = true) {
     const body = document.createElement("div"); body.style.flex = "1";
     const t = document.createElement("div"); t.className = "dest"; t.textContent = r.destino;
     const m = document.createElement("div"); m.className = "meta"; m.textContent = r.regiao;
-    const bar = document.createElement("div"); bar.className = "bar";
-    const fill = document.createElement("i"); fill.style.width = pct(r.prob); bar.appendChild(fill);
-    const nums = document.createElement("div"); nums.className = "nums";
-    const a = document.createElement("span"); a.textContent = "Chance de aprovar: " + pct(r.prob);
-    const b = document.createElement("span");
-    const pp = Math.round(r.vsMedia * 100);
-    b.className = pp >= 0 ? "up" : "down";
-    b.textContent = (pp >= 0 ? "+" : "") + pp + " p.p. vs. viajante médio";
-    nums.append(a, b);
+    const match = document.createElement("div"); match.className = "match";
+    const topo = document.createElement("div"); topo.className = "match-topo";
+    const lab = document.createElement("span"); lab.textContent = "Match";
+    const val = document.createElement("b"); val.textContent = pct(r.prob);
+    topo.append(lab, val);
+    const trilho = document.createElement("div"); trilho.className = "trilho";
+    trilho.setAttribute("role", "img"); trilho.setAttribute("aria-label", "Match de " + pct(r.prob));
+    const rota = document.createElement("i"); rota.style.width = pct(r.prob);
+    const aviao = document.createElement("span"); aviao.className = "aviao"; aviao.textContent = "✈";
+    aviao.style.left = pct(r.prob);
+    trilho.append(rota, aviao);
+    match.append(topo, trilho);
     const why = document.createElement("div"); why.className = "why";
     r.motivos.forEach(x => { const s = document.createElement("span"); s.textContent = x; why.appendChild(s); });
-    body.append(t, m, bar, nums, why);
+    body.append(t, m, match, why);
     el.append(pos, caixaFoto(r.destino), body);
     alvo.appendChild(el);
   });
