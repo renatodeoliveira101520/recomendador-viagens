@@ -91,6 +91,7 @@
       <h2 id="t-res">Seu Top 3</h2>
       <p class="sub">Probabilidade estimada de você aprovar o destino e o quanto ele combina mais com você do que com o viajante médio.</p>
       <div id="resultado"><p class="empty">Preencha o perfil e clique em <b>Recomendar destinos</b>.</p></div>
+      <button class="link" id="mais" type="button" hidden>Ver outras 3 sugestões</button>
       <details class="inputs">
         <summary>Ver os inputs enviados ao modelo</summary>
         <pre id="inputs">—</pre>
@@ -177,18 +178,21 @@ function atualizaRegioes() {
 atualizaRegioes();
 
 // ---------- modelo (mesma conta do notebook 05) ----------
-function recomendar(perfil, k = 3) {
+const CORE = PERGUNTAS.map(p => p.col).filter(c => c !== "form_r_pt" && c !== "form_rr_pt");
+function recomendar(perfil, k = 3, excluir = new Set()) {
   const ativos = [];
   for (const [col, vals] of Object.entries(perfil))
     for (const v of vals) { const j = IDX.get(col + "=" + v); if (j !== undefined) ativos.push(j); }
   const basePerfil = ativos.reduce((s, j) => s + M.wPerfil[j], 0);
   const regioes = perfil.form_rr_pt || [];
+  // ajuste contra campeões proporcional às perguntas respondidas (igual ao notebook 05)
+  const peso = M.pesoPop * CORE.filter(c => (perfil[c] || []).length).length / CORE.length;
   const cand = M.dest.map((d, i) => {
     let logit = M.b0 + d.w + basePerfil;
     for (const j of ativos) logit += d.wi[j];
     const p = 1 / (1 + Math.exp(-logit));
-    return { i, p, score: p - M.pesoPop * d.pop };
-  }).filter(c => !regioes.length || regioes.includes(M.dest[c.i].r))
+    return { i, p, score: p - peso * d.pop };
+  }).filter(c => !excluir.has(c.i) && (!regioes.length || regioes.includes(M.dest[c.i].r)))
     .sort((a, b) => b.score - a.score);
   const escolhidos = [], porPais = {};
   for (const c of cand) {
@@ -203,28 +207,33 @@ function recomendar(perfil, k = 3) {
     const motivos = ativos.map(j => [j, d.wi[j]]).filter(x => x[1] > 0)
       .sort((a, b) => b[1] - a[1]).slice(0, 3)
       .map(([j]) => (ROTULO[M.vocab[j][0]] || M.vocab[j][0]) + ": " + M.vocab[j][1]);
-    return { destino: d.n, pais: d.p, regiao: d.r, prob: c.p, vsMedia: c.p - d.pop, motivos };
+    return { i: c.i, destino: d.n, pais: d.p, regiao: d.r, prob: c.p, vsMedia: c.p - d.pop, motivos };
   });
 }
 window.recomendar = recomendar;
 
 // ---------- resultado ----------
 const pct = x => (x * 100).toFixed(0) + "%";
-function mostrar() {
+let mostrados = new Set();
+function mostrar(novos = true) {
+  if (novos) mostrados = new Set();
   const perfil = {};
   for (const [col, s] of Object.entries(estado)) if (s.size) perfil[col] = [...s];
   document.getElementById("inputs").textContent = Object.keys(perfil).length
     ? JSON.stringify(perfil, null, 2) : "Nenhuma resposta: o resultado reflete o viajante médio.";
-  const res = recomendar(perfil);
+  const res = recomendar(perfil, 3, mostrados);
+  res.forEach(r => mostrados.add(r.i));
+  document.getElementById("mais").hidden = !res.length;
   const alvo = document.getElementById("resultado");
   alvo.replaceChildren();
   if (!res.length) {
     const p = document.createElement("p"); p.className = "empty";
-    p.textContent = "Nenhum destino encontrado para essas regiões."; alvo.appendChild(p); return;
+    p.textContent = novos ? "Nenhum destino encontrado para essas regiões." : "Não há mais sugestões para esse perfil.";
+    alvo.appendChild(p); return;
   }
   res.forEach((r, n) => {
     const el = document.createElement("div"); el.className = "result";
-    const pos = document.createElement("div"); pos.className = "pos"; pos.textContent = n + 1;
+    const pos = document.createElement("div"); pos.className = "pos"; pos.textContent = mostrados.size - res.length + n + 1;
     const body = document.createElement("div"); body.style.flex = "1";
     const t = document.createElement("div"); t.className = "dest"; t.textContent = r.destino;
     const m = document.createElement("div"); m.className = "meta"; m.textContent = r.regiao;
@@ -244,13 +253,15 @@ function mostrar() {
     alvo.appendChild(el);
   });
 }
-document.getElementById("btn").addEventListener("click", mostrar);
+document.getElementById("btn").addEventListener("click", () => mostrar(true));
+document.getElementById("mais").addEventListener("click", () => mostrar(false));
 document.getElementById("limpar").addEventListener("click", () => {
   for (const s of Object.values(estado)) s.clear();
   document.querySelectorAll(".chip").forEach(c => c.setAttribute("aria-pressed", "false"));
   atualizaRegioes();
   document.getElementById("resultado").innerHTML = '<p class="empty">Preencha o perfil e clique em <b>Recomendar destinos</b>.</p>';
   document.getElementById("inputs").textContent = "—";
+  document.getElementById("mais").hidden = true;
 });
 </script>
 </body>

@@ -63,6 +63,7 @@ TOP_K = 3
 
 # --- Contra os "destinos campeões" (que agradam todo mundo e apareceriam para todos) ---
 # PESO_POPULARIDADE: o ranking usa  prob. da pessoa − PESO × taxa de Sim geral do destino.
+#   No formulário, o peso é proporcional às perguntas respondidas (todas = PESO; metade = PESO/2).
 #   0 = ranking puro pela probabilidade | 1 = só "o quanto a pessoa gosta MAIS que a média"
 PESO_POPULARIDADE = 0.5
 # Diversidade: no máximo N destinos do mesmo país no Top 3 (None = sem limite)
@@ -543,6 +544,12 @@ def recomendar(perfil, k=None, excluir=None, peso=None, max_pais=None):
     for col, v in perfil.items():
         toks.extend(tokens_do_valor(col, list(v) if isinstance(v, (list, tuple, set)) else v))
     Um = matriz_de_tokens([toks])
+    if peso is None:
+        # Ajuste contra campeões proporcional ao quanto conhecemos a pessoa:
+        # com poucas respostas, o modelo sabe pouco e é melhor confiar mais na popularidade.
+        principais = [c for c in COLUNAS_PERFIL if c not in (COL_REGIOES, "form_r_pt")]
+        respondidas = sum(1 for c in principais if len(tokens_do_valor(c, perfil.get(c))) > 0)
+        peso = PESO_POPULARIDADE * respondidas / max(len(principais), 1)
     p = probabilidades(Um)[0]
     ativos = Um.indices
     linhas = []
