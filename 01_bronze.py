@@ -1,4 +1,8 @@
 # Databricks notebook source
+# /// script
+# [tool.databricks.environment]
+# environment_version = "6"
+# ///
 # MAGIC %md
 # MAGIC # Bússola — 01 · Camada Bronze (ingestão)
 # MAGIC
@@ -33,6 +37,8 @@ PASTA_VOLUME = "/Volumes/workspace/default/stravl_raw"
 
 def tabela(nome):
     return f"{CATALOGO}.{SCHEMA}.{nome}" if CATALOGO else f"{SCHEMA}.{nome}"
+
+# Teste de integração Databricks → GitHub
 
 # COMMAND ----------
 
