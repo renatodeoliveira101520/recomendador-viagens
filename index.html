@@ -51,6 +51,13 @@
   .why { margin-top: 6px; display: flex; flex-wrap: wrap; gap: 6px; }
   .why span { background: #f3efe6; border-radius: 6px; padding: 2px 8px; font-size: 12px; color: #5a4a2e; }
   .empty { color: var(--muted); font-size: 14px; padding: 8px 0; }
+  .foto { flex: 0 0 112px; width: 112px; height: 84px; border-radius: 10px; overflow: hidden; background: #ece6da;
+          display: grid; place-items: center; position: relative; }
+  .foto img { width: 100%; height: 100%; object-fit: cover; display: block; }
+  .foto .ph { font-size: 26px; opacity: .45; }
+  .foto a.cred { position: absolute; right: 4px; bottom: 3px; font-size: 9.5px; color: #fff; text-decoration: none;
+                 background: rgba(0,0,0,.45); padding: 0 4px; border-radius: 4px; }
+  @media (max-width: 480px) { .foto { flex-basis: 84px; width: 84px; height: 66px; } }
   .inputs { margin-top: 16px; background: #fbfaf7; border: 1px dashed var(--line); border-radius: 10px; padding: 10px 12px; }
   .inputs summary { cursor: pointer; font-size: 13px; color: var(--muted); }
   .inputs pre { margin: 8px 0 0; font-size: 12px; white-space: pre-wrap; word-break: break-word; }
@@ -104,6 +111,7 @@
   Projeto Bússola — Hands-On Engenharia de Dados em Big Data e Analytics, MBA em Engenharia de Dados (Mackenzie).
   Dados: <a href="https://github.com/Stravl/stravl-data" target="_blank" rel="noopener">Stravl Travel Preference Data</a>.
   Pipeline e modelo: <a href="https://github.com/renatodeoliveira101520/recomendador-viagens" target="_blank" rel="noopener">github.com/renatodeoliveira101520/recomendador-viagens</a>.
+  Fotos: Wikipédia (licenças livres; clique em "Wikipédia" na foto para ver a origem).
   Regras aplicadas após o modelo: ajuste contra destinos campeões (peso 0,5), no máximo 1 destino por país e filtro pelas regiões escolhidas.
 </footer>
 
@@ -213,6 +221,72 @@ function recomendar(perfil, k = 3, excluir = new Set()) {
 }
 window.recomendar = recomendar;
 
+// ---------- fotos (Wikipédia, licença livre) ----------
+const fotoCache = {};
+const norm = s => s.normalize("NFD").replace(/[\u0300-\u036f]/g, "").replace(/[-‐]/g, " ").toLowerCase().trim();
+// Artigos que não são de cidades (aeroportos, condados, eleições...) nunca servem como foto do destino
+const RUIM = /(airport|aeroporto|election|county|university|school|mall|station|stadium|district|metropolitan|list of|history of|college)/i;
+// Destinos cujo nome não bate com o artigo da Wikipédia
+const APELIDOS = { "Barra Grande, Brazil": ["pt", "Maraú"], "Bombas, Brazil": ["pt", "Praia de Bombas"] };
+const apiWiki = l => `https://${l}.wikipedia.org/w/api.php?action=query&format=json&origin=*&redirects=1`
+  + "&prop=pageimages|pageprops|info&inprop=url&ppprop=disambiguation&piprop=thumbnail&pithumbsize=480";
+function artigoBom(p, cidade) {
+  if (!p || p.missing !== undefined || !p.thumbnail) return false;
+  if (p.pageprops && p.pageprops.disambiguation !== undefined) return false;
+  if (RUIM.test(p.title)) return false;
+  const t = norm(p.title);
+  return t === cidade || t.startsWith(cidade + ",") || t.startsWith(cidade + " (");
+}
+async function tentarWiki(lingua, partes) {
+  const cidade = norm(partes[0]), pais = partes[partes.length - 1];
+  // 1) título exato: "Cidade, Estado", "Cidade, País", "Cidade"
+  const titulos = [];
+  if (partes.length >= 3) titulos.push(partes[0] + ", " + partes[1]);
+  titulos.push(partes[0] + ", " + pais, partes[0]);
+  const j = await (await fetch(apiWiki(lingua) + "&titles=" + encodeURIComponent(titulos.join("|")))).json();
+  const q = j.query || {};
+  const porTitulo = {}; Object.values(q.pages || {}).forEach(p => porTitulo[norm(p.title)] = p);
+  const vaiPara = {}; (q.redirects || []).concat(q.normalized || []).forEach(r => vaiPara[norm(r.from)] = norm(r.to));
+  for (const t of titulos) {
+    let k = norm(t), n = 0;
+    while (vaiPara[k] && vaiPara[k] !== k && n++ < 5) k = vaiPara[k];
+    if (artigoBom(porTitulo[k], cidade)) return porTitulo[k];
+  }
+  // 2) busca, aceitando só artigo cujo título é a própria cidade
+  const s = await (await fetch(apiWiki(lingua) + "&generator=search&gsrlimit=5&gsrsearch=" + encodeURIComponent(partes[0] + " " + pais))).json();
+  const res = s.query && s.query.pages ? Object.values(s.query.pages).sort((a, b) => a.index - b.index) : [];
+  return res.find(p => artigoBom(p, cidade)) || null;
+}
+async function buscarFoto(nome) {
+  if (nome in fotoCache) return fotoCache[nome];
+  let p = null;
+  try {
+    if (APELIDOS[nome]) {
+      const [l, t] = APELIDOS[nome];
+      const j = await (await fetch(apiWiki(l) + "&titles=" + encodeURIComponent(t))).json();
+      p = Object.values((j.query || {}).pages || {})[0];
+      if (!p || !p.thumbnail) p = null;
+    }
+    const partes = nome.split(",").map(s => s.trim());
+    for (const l of ["en", "pt"]) { if (p) break; p = await tentarWiki(l, partes); }
+  } catch (e) { p = null; }
+  return (fotoCache[nome] = p ? { src: p.thumbnail.source, titulo: p.title, link: p.fullurl } : null);
+}
+function caixaFoto(nome) {
+  const box = document.createElement("div"); box.className = "foto";
+  const ph = document.createElement("span"); ph.className = "ph"; ph.textContent = "🧭"; box.appendChild(ph);
+  buscarFoto(nome).then(f => {
+    if (!f) return;
+    const img = document.createElement("img");
+    img.src = f.src; img.alt = "Foto de " + f.titulo; img.loading = "lazy";
+    img.onerror = () => img.remove();
+    const a = document.createElement("a"); a.className = "cred"; a.href = f.link; a.target = "_blank";
+    a.rel = "noopener"; a.textContent = "Wikipédia"; a.title = "Foto: " + f.titulo + " (Wikipédia)";
+    ph.remove(); box.append(img, a);
+  });
+  return box;
+}
+
 // ---------- resultado ----------
 const pct = x => (x * 100).toFixed(0) + "%";
 let mostrados = new Set();
@@ -250,7 +324,7 @@ function mostrar(novos = true) {
     const why = document.createElement("div"); why.className = "why";
     r.motivos.forEach(x => { const s = document.createElement("span"); s.textContent = x; why.appendChild(s); });
     body.append(t, m, bar, nums, why);
-    el.append(pos, body);
+    el.append(pos, caixaFoto(r.destino), body);
     alvo.appendChild(el);
   });
 }
