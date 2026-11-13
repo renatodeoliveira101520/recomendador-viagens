@@ -103,7 +103,7 @@
 
     <section class="card sticky" aria-labelledby="t-res" aria-live="polite">
       <h2 id="t-res">Seu Top 3</h2>
-      <p class="sub">O Match indica o quanto o destino combina com o seu perfil: é a chance de aprovação estimada pelo modelo, corrigida para uma base equilibrada (50% Sim, 50% Não).</p>
+      <p class="sub">O Match mostra o quanto cada destino combina com o seu perfil em comparação com os outros destinos disponíveis para você.</p>
       <div id="resultado"><p class="empty">Preencha o perfil e clique em <b>Recomendar destinos</b>.</p></div>
       <button class="link" id="mais" type="button" hidden>Ver outras 3 sugestões</button>
       <details class="inputs">
@@ -209,29 +209,38 @@ function recomendar(perfil, k = 3, excluir = new Set(), filtro = null) {
     for (const j of ativos) logit += d.wi[j];
     const p = 1 / (1 + Math.exp(-logit));
     return { i, p, score: p - peso * d.pop };
-  }).filter(c => {
-    if (excluir.has(c.i)) return false;
+  });
+  // Match: quanto a pontuação do destino se destaca da média do catálogo para este perfil
+  // (desvios-padrão acima da média, convertidos para 0–100% por uma curva logística).
+  // Segue exatamente a ordem do ranking: quem está acima no ranking nunca tem Match menor.
+  // A comparação é feita com os destinos que a pessoa pode receber (as regiões escolhidas, ou o catálogo todo).
+  const noEscopo = c => {
     if (!filtro.regioes.length && !filtro.paises.length) return true;
     const d = M.dest[c.i];
     return filtro.regioes.includes(d.r) || filtro.paises.includes(d.p);
-  })
-    .sort((a, b) => b.score - a.score);
+  };
+  const escopo = cand.filter(noEscopo);
+  const media = escopo.reduce((s, c) => s + c.score, 0) / Math.max(escopo.length, 1);
+  const desvio = Math.sqrt(escopo.reduce((s, c) => s + (c.score - media) ** 2, 0) / Math.max(escopo.length, 1)) || 1;
+  escopo.forEach(c => c.match = 1 / (1 + Math.exp(-(c.score - media) / desvio)));
+  const filtrados = escopo.filter(c => !excluir.has(c.i)).sort((a, b) => b.score - a.score);
   const escolhidos = [], porPais = {};
   // só um país escolhido (ex.: Brasil): a regra de 1 destino por país não faz sentido
   const limitePais = (filtro.paises.length && !filtro.regioes.length) ? 0 : M.maxPais;
-  for (const c of cand) {
+  for (const c of filtrados) {
     if (escolhidos.length === k) break;
     const pais = M.dest[c.i].p;
     if (limitePais && (porPais[pais] || 0) >= limitePais) continue;
     porPais[pais] = (porPais[pais] || 0) + 1;
     escolhidos.push(c);
   }
+  escolhidos.sort((a, b) => b.score - a.score);
   return escolhidos.map(c => {
     const d = M.dest[c.i];
     const motivos = ativos.map(j => [j, d.wi[j]]).filter(x => x[1] > 0)
       .sort((a, b) => b[1] - a[1]).slice(0, 3)
       .map(([j]) => { const [c, v] = M.vocab[j]; return (ROTULO[c] || c) + ": " + ((EXIBIR[c] || {})[v] || v); });
-    return { i: c.i, destino: d.n, pais: d.p, regiao: d.r, prob: c.p, vsMedia: c.p - d.pop, motivos };
+    return { i: c.i, match: c.match, destino: d.n, pais: d.p, regiao: d.r, prob: c.p, vsMedia: c.p - d.pop, motivos };
   });
 }
 window.recomendar = recomendar;
@@ -302,15 +311,6 @@ function caixaFoto(nome) {
   return box;
 }
 
-// ---------- Match ----------
-// A base tem só 36,7% de "Sim" (288.756 Sim ÷ 786.940 Sim+Não), o que puxa todas as probabilidades para baixo.
-// O Match corrige esse desequilíbrio: é a probabilidade que o destino teria numa base com 50% Sim e 50% Não.
-const TAXA_SIM_BASE = 288756 / 786940;
-function calcMatch(p) {
-  const b = TAXA_SIM_BASE;
-  return (p * (1 - b)) / (p * (1 - b) + b * (1 - p));
-}
-
 // ---------- resultado ----------
 const pct = x => (x * 100).toFixed(0) + "%";
 let mostrados = new Set();
@@ -347,8 +347,9 @@ function mostrar(novos = true) {
     const match = document.createElement("div"); match.className = "match";
     const topo = document.createElement("div"); topo.className = "match-topo";
     const lab = document.createElement("span"); lab.textContent = "Match";
-    const m100 = calcMatch(r.prob);
-    const val = document.createElement("b"); val.textContent = pct(m100);
+    const m100 = r.match;
+    const val = document.createElement("b");
+    val.textContent = Math.min(99, Math.round(m100 * 100)) + "%";
     topo.append(lab, val);
     const trilho = document.createElement("div"); trilho.className = "trilho";
     trilho.setAttribute("role", "img"); trilho.setAttribute("aria-label", "Match de " + pct(m100));
