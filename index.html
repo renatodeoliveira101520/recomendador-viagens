@@ -320,15 +320,15 @@ function mostrar(novos = true) {
   for (const [col, s] of Object.entries(estado)) if (s.size) perfil[col] = [...s];
   document.getElementById("inputs").textContent = Object.keys(perfil).length
     ? JSON.stringify(perfil, null, 2) : "Nenhuma resposta: o resultado reflete o viajante médio.";
-  // "Brasil" não existe nas respostas do Stravl: vai ao modelo como "América do Sul" e vira filtro por país
+  // Regiões são só FILTRO (de onde vêm os destinos); não entram no modelo, para não mudar a nota dos destinos.
+  // Motivo: só 21% dos viajantes da base responderam essa pergunta, e os pesos aprendidos para ela são instáveis.
   const rr = perfil.form_rr_pt || [];
   const filtro = { regioes: rr.filter(r => r !== "Brasil"), paises: rr.includes("Brasil") ? ["Brazil"] : [] };
-  if (rr.includes("Brasil")) {
-    perfil.form_rr_pt = [...new Set(filtro.regioes.concat(["América do Sul"]))];
-    document.getElementById("inputs").textContent = JSON.stringify(perfil, null, 2)
-      + "\n\n* Brasil: enviado ao modelo como \"América do Sul\" e aplicado como filtro de país.";
-  }
-  const res = recomendar(perfil, 3, mostrados, filtro);
+  const perfilModelo = Object.fromEntries(Object.entries(perfil).filter(([c]) => c !== "form_r_pt" && c !== "form_rr_pt"));
+  document.getElementById("inputs").textContent =
+    (Object.keys(perfilModelo).length ? JSON.stringify(perfilModelo, null, 2) : "Nenhuma resposta: o resultado reflete o viajante médio.")
+    + (rr.length ? "\n\nFiltro de regiões (aplicado depois do modelo): " + rr.join(", ") : "");
+  const res = recomendar(perfilModelo, 3, mostrados, filtro);
   res.forEach(r => mostrados.add(r.i));
   document.getElementById("mais").hidden = !res.length;
   const alvo = document.getElementById("resultado");
