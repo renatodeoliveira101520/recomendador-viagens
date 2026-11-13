@@ -137,7 +137,7 @@ const PERGUNTAS = [
   { col: "form_f_pt", titulo: "Experiências", multi: true,
     valores: ["Praia","Aventura","Natureza","Cultura","Vida noturna","História","Compras","Gastronomia"].map(v => [v, v]) },
   { col: "form_g_pt", titulo: "Paisagens", multi: true,
-    valores: ["Urbana","Rural","Mar","Montanha","Lago","Deserto","Planícies","Selva"].map(v => [v, v]) },
+    valores: ["Urbana","Rural","Mar","Montanha","Lago","Deserto","Planícies","Selva"].map(v => [v === "Planícies" ? "Savana" : v, v]) },
   { col: "form_h_pt", titulo: "Nível de atividade", multi: false,
     valores: ["Relaxado e tranquilo","Equilibrado","Ativo"].map(v => [v, v]) },
   { col: "form_i_pt", titulo: "Segurança", multi: false,
