@@ -254,8 +254,11 @@ const RUIM = /(airport|aeroporto|election|county|university|school|mall|station|
 const APELIDOS = { "Barra Grande, Brazil": ["pt", "Maraú"], "Bombas, Brazil": ["pt", "Praia de Bombas"] };
 const apiWiki = l => `https://${l}.wikipedia.org/w/api.php?action=query&format=json&origin=*&redirects=1`
   + "&prop=pageimages|pageprops|info&inprop=url&ppprop=disambiguation&piprop=thumbnail&pithumbsize=480";
+// Imagens que não são fotos do lugar (brasões, bandeiras, mapas, logos)
+const NAO_FOTO = /(coat[_ ]of[_ ]arms|flag|bandeira|bras[aã]o|escudo|seal|logo|map|mapa|locator|location|emblem|\.svg)/i;
 function artigoBom(p, cidade) {
   if (!p || p.missing !== undefined || !p.thumbnail) return false;
+  if (NAO_FOTO.test(decodeURIComponent(p.thumbnail.source))) return false;
   if (p.pageprops && p.pageprops.disambiguation !== undefined) return false;
   if (RUIM.test(p.title)) return false;
   const t = norm(p.title);
