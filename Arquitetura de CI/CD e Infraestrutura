@@ -1,0 +1,137 @@
+# Arquitetura de CI/CD e Infraestrutura
+
+## 1. Visão geral
+
+```text
+Desenvolvedor
+     |
+     v
+Pull Request
+     |
+     v
+CI (GitHub Actions)
+     |
+     |-- Lint e testes
+     |-- Testes de dados
+     |-- Validação do bundle
+     |
+     v
+Merge na main
+     |
+     v
+CD
+     |
+     |-- Deploy no Databricks (Asset Bundles)
+     |-- Execução do pipeline 01 → 05
+     |-- Publicação da página (GitHub Pages)
+```
+
+**Infraestrutura como código:** Terraform + `databricks.yml`.
+
+## 2. CI: Integração Contínua (a cada Pull Request)
+
+Executada pelo **GitHub Actions** (`.github/workflows/ci.yml`).
+
+### 2.1. Qualidade de código
+- **Ruff:** lint e formatação dos notebooks `.py`.
+
+### 2.2. Testes unitários (pytest)
+
+Testes das regras de negócio, com PySpark local e uma amostra pequena de dados:
+
+- Tradução dos códigos (ex.: `"7"` → `"Gastronomia"`).
+- Consolidação da Gold:
+  - Swipes repetidos contam uma única vez.
+  - Pares com respostas conflitantes são descartados.
+- Filtro de regiões e regra de um destino por país no Top 3.
+
+### 2.3. Testes de dados (contratos)
+
+- A Gold possui as 15 colunas esperadas.
+- O campo `target` assume apenas os valores `0`, `1` ou vazio.
+- Não existem pares viajante × destino duplicados.
+
+### 2.4. Validação da infraestrutura
+
+- `databricks bundle validate`.
+- `terraform plan`, sem aplicar nenhuma alteração.
+
+### 2.5. Regra de aprovação
+
+O merge na `main` só é liberado quando:
+
+- Todos os checks estiverem verdes.
+- Houver pelo menos uma revisão aprovada por um colega.
+
+## 3. CD: Entrega Contínua (a cada merge na main)
+
+### 3.1. Deploy no Databricks com Asset Bundles
+
+O comando `databricks bundle deploy -t prod` cria ou atualiza um **Job** com as tarefas encadeadas:
+
+```text
+01_bronze → 02_silver → 03_gold → 04_eda → 05_modelo
+```
+
+### 3.2. Ambientes separados
+
+- **Dev:** schema `dev`, utilizado nos testes.
+- **Prod:** schema `default`.
+
+O mesmo código é utilizado nos dois ambientes, com configurações específicas para cada um.
+
+### 3.3. Portão de qualidade do modelo
+
+A etapa `05_modelo` registra as métricas no **MLflow**.
+
+A nova versão só é promovida se a **Precisão@3 for maior ou igual à recomendação por popularidade**.
+
+Caso o resultado seja inferior, o deploy é interrompido e o modelo anterior é mantido em produção.
+
+### 3.4. Publicação da aplicação
+
+Um passo final executa as seguintes ações:
+
+1. Exporta os pesos do modelo.
+2. Gera o arquivo `index.html`.
+3. Publica a aplicação no **GitHub Pages**.
+
+A página permanece sincronizada com o modelo em produção.
+
+### 3.5. Agendamento
+
+O Job é executado semanalmente para reprocessar os dados caso a base do Stravl seja atualizada.
+
+## 4. Infraestrutura como Código (IaC)
+
+| Ferramenta | O que define |
+|---|---|
+| **Terraform** (provider Databricks) | Catálogo e schemas (`dev`, `prod`), Volume para os arquivos brutos, permissões dos membros do grupo e política de computação. |
+| **Databricks Asset Bundles** (`databricks.yml`) | Job do pipeline, ordem das tarefas, agendamento e variáveis por ambiente. |
+| **GitHub Secrets** | Host e token do Databricks. As credenciais nunca são armazenadas diretamente no código. |
+
+**Benefício:** qualquer pessoa consegue recriar todo o ambiente do zero com dois comandos:
+
+```bash
+terraform apply
+databricks bundle deploy
+```
+
+Sem necessidade de configurações manuais pela interface.
+
+## 5. Monitoramento
+
+### 5.1. Alertas de execução
+- Alertas do Job do Databricks por e-mail em caso de falha.
+
+### 5.2. Qualidade dos dados
+- Métricas de qualidade da Silver registradas a cada execução:
+  - Orçamento marcado por inteiro.
+  - Popularidade marcada por inteiro.
+  - Inconsistência geográfica.
+
+Uma variação brusca nessas métricas pode indicar problemas na fonte de dados.
+
+### 5.3. Monitoramento do modelo
+- Histórico das métricas do modelo registrado no MLflow.
+- Acompanhamento da evolução entre diferentes versões.
