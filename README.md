@@ -1,135 +1,143 @@
-# Bússola — Recomendação Personalizada de Destinos de Viagem
+# Compass
 
-Trabalho final da disciplina **Hands-On Engenharia de Dados em Big Data e Analytics** — MBA em Engenharia de Dados, Universidade Presbiteriana Mackenzie.
+Sistema de recomendação de destinos de viagem desenvolvido como trabalho final da disciplina Hands-On Engenharia de Dados em Big Data e Analytics, do MBA em Engenharia de Dados da Universidade Presbiteriana Mackenzie.
 
-O sistema recebe as preferências de viagem de uma pessoa (faixa etária, orçamento, estação, experiências, paisagens, nível de atividade, segurança, popularidade e regiões) e devolve **3 destinos personalizados**, com a probabilidade de interesse e o motivo de cada recomendação.
+A partir de um formulário de preferências (faixa etária, orçamento, período da viagem, experiências, paisagens, nível de atividade, segurança, popularidade e regiões), o sistema recomenda os 3 destinos mais compatíveis com o perfil do viajante.
 
----
+- Aplicação: https://renatodeoliveira101520.github.io/recomendador-viagens/
+- Briefing do projeto: [COMPASS.pdf](COMPASS.pdf)
+- Arquitetura de CI/CD: [docs/ARQUITETURA_CICD.md](docs/ARQUITETURA_CICD.md)
+
+## Contexto
+
+Plataformas de viagem costumam recomendar os mesmos destinos populares para todos os usuários. Na base analisada, 61% das avaliações foram negativas e 22% dos viajantes recusaram todos os destinos apresentados. O objetivo do projeto é construir um pipeline de dados e um modelo que gerem recomendações personalizadas e diversas.
 
 ## Base de dados
 
-Usamos a base pública **Stravl Travel Preference Data** ([github.com/Stravl/stravl-data](https://github.com/Stravl/stravl-data)), liberada para uso acadêmico e comercial.
+Stravl Travel Preference Data ([github.com/Stravl/stravl-data](https://github.com/Stravl/stravl-data)), base pública liberada para uso acadêmico e comercial. Os dados são baixados diretamente da fonte pelo notebook de ingestão.
 
 | Item | Quantidade |
 |---|---:|
 | Viajantes no formulário | 80.301 |
 | Viajantes com avaliações | 61.130 |
 | Destinos avaliados | 1.452 |
-| Avaliações (Sim / Não / Talvez) | 813.802 |
+| Avaliações (Sim, Não, Talvez) | 813.802 |
 
-Cada viajante respondeu a um formulário de preferências e depois avaliou destinos com **Sim**, **Não** ou **Talvez**.
+## Arquitetura
 
----
-
-## Arquitetura (Databricks + Delta Lake)
+O pipeline roda no Databricks, com tabelas Delta organizadas em arquitetura medalhão no schema `workspace.default`.
 
 ```
-Bronze  →  dados originais do Stravl (formulário, swipes, catálogo de destinos)
-Silver  →  limpeza, tradução das respostas, nomes dos destinos, flags de qualidade
-Gold    →  uma linha por avaliação (viajante × destino) + perfil traduzido
-              ↓
-        EDA  •  Modelo de recomendação  •  Top 3 por viajante (tabela Delta)
+Stravl (GitHub)
+   │
+   ▼
+Bronze   dados originais, sem transformação
+   │
+   ▼
+Silver   respostas traduzidas, flags de qualidade, país e região dos destinos
+   │
+   ▼
+Gold     uma linha por avaliação (viajante × destino) com o perfil do viajante
+   │
+   ├──► EDA
+   └──► Modelo ──► Top 3 por viajante (Delta) ──► Aplicação (GitHub Pages)
 ```
 
-**Tabela Gold (`gold_stravl_v_2`)** — 813.802 linhas, 15 colunas:
-`usuario_id`, `destino`, `pais`, `form_a_pt` (faixa etária), `form_b_pt` (orçamento), `form_c_pt` (estação), `form_f_pt` (experiências), `form_g_pt` (paisagens), `form_h_pt` (nível de atividade), `form_i_pt` (segurança), `form_j_pt` (popularidade), `form_r_pt` (para onde quer ir), `form_rr_pt` (regiões), `avaliacao`, `target` (1 = Sim, 0 = Não, vazio = Talvez).
-
----
-
-## Estrutura do repositório
-
-| Notebook | Etapa | O que faz |
+| Notebook | Tabelas geradas | Descrição |
 |---|---|---|
-| `01_bronze.py` | Bronze | Lê os arquivos originais do Stravl (GitHub ou Volume) e grava sem transformação |
-| `02_silver.py` | Silver | Traduz as respostas, cria flags de qualidade e enriquece os destinos com país e região |
-| `03_gold.py` | Gold | Consolida as avaliações e junta com o perfil de cada viajante |
-| `04_eda.py` | Análise | Análise exploratória da Gold |
-| `05_modelo_recomendacao.py` | Modelo | Regressão Logística, avaliação, formulário e Top 3 |
+| `01_bronze.py` | `bronze_stravl_formulario`, `bronze_stravl_destinos` | Ingestão dos arquivos originais |
+| `02_silver.py` | `silver_stravl_viajantes`, `silver_stravl_destinos` | Conversão das respostas em listas, tradução dos códigos, flags de qualidade e enriquecimento dos destinos |
+| `03_gold.py` | `gold_stravl_v_2` | Consolidação das avaliações e junção com o perfil |
+| `04_eda.py` | — | Análise exploratória |
+| `05_modelo_recomendacao.py` | `stravl_recomendacoes_top3` | Treino, avaliação e geração do Top 3 |
 
----
+### Tratamento dos dados
 
-## Como executar
+- Registros com problemas de qualidade são sinalizados por flags, e não removidos. Exemplos: todas as faixas de orçamento marcadas, formulário incompleto e regiões inconsistentes com a resposta "para onde quer ir".
+- Avaliações repetidas do mesmo viajante para o mesmo destino são contadas uma única vez.
+- Pares com respostas conflitantes (por exemplo, Sim e Não para o mesmo destino) são descartados.
 
-1. **Importar o repositório no Databricks:** *Workspace → Create → Git folder* com a URL deste repositório.
-2. **Rodar os notebooks na ordem** (01 → 05), com computação *Serverless*.
-   - O `01_bronze` baixa os dados direto do GitHub do Stravl. Se o Databricks não tiver acesso à internet, suba `Stravl_Travel_Preference_Data.csv` e `destination_ids.txt` em um Volume (`/Volumes/workspace/default/stravl_raw`).
-3. **Testar o formulário:** no `05_modelo_recomendacao`, abra *Show parameters*, preencha as preferências e execute a célula **"9. Resultado do formulário"**.
+### Tabela Gold
 
-Tabelas geradas em `workspace.default`: `bronze_stravl_formulario`, `bronze_stravl_destinos`, `silver_stravl_viajantes`, `silver_stravl_destinos`, `gold_stravl_v_2` e `stravl_recomendacoes_top3`.
+`gold_stravl_v_2`: 813.802 linhas e 15 colunas.
 
----
+| Coluna | Descrição |
+|---|---|
+| `usuario_id` | Identificador do viajante |
+| `destino`, `pais` | Destino avaliado e país |
+| `form_a_pt` a `form_rr_pt` | Respostas do formulário, traduzidas (listas em formato JSON) |
+| `avaliacao` | Sim, Não ou Talvez |
+| `target` | 1 = Sim, 0 = Não, nulo = Talvez |
 
-## Análise exploratória — principais achados
+## Análise exploratória
 
-- **22%** dos viajantes recusaram todos os destinos que viram; apenas 4% aprovaram todos.
-- **21%** marcaram todas as faixas de orçamento e idade ao mesmo tempo (indício de que pularam a pergunta). Esses registros foram mantidos e sinalizados.
-- Destinos nos **EUA** concentram 40% das avaliações e têm a menor aceitação (21% de Sim, contra 47% no resto do mundo).
-- As preferências quase não mudam **quanto** as pessoas aprovam, mas mudam bastante **quais** destinos elas aprovam. Exemplos: quem busca praia aprova muito mais Belize e Bahamas; quem busca montanha, Füssen e Pokhara; quem busca deserto, destinos no Egito.
-- Cinco **personas** foram identificadas por K-Means (ex.: natureza e montanha, praia e mar, cultura urbana).
-
----
+- 22% dos viajantes recusaram todos os destinos avaliados; 4% aprovaram todos.
+- 21% marcaram todas as faixas de orçamento e idade, o que indica que pularam essas perguntas.
+- Destinos nos EUA concentram 40% das avaliações e têm a menor taxa de aprovação (21%, contra 47% no restante).
+- As preferências influenciam pouco o volume de aprovações, mas mudam quais destinos são aprovados. Quem busca praia aprova mais Belize e Bahamas; quem busca montanha, Füssen e Pokhara.
+- A segmentação com K-Means identificou cinco perfis de viajante.
 
 ## Modelo
 
-**Regressão Logística** que estima a probabilidade de o viajante dizer "Sim" para cada destino.
+Regressão logística que estima a probabilidade de o viajante aprovar cada destino.
 
-- **Variável-alvo:** Sim = 1, Não = 0 (as respostas "Talvez" ficam fora do treino).
-- **Variáveis:** cada resposta do formulário vira uma variável 0/1, e o modelo aprende um peso para cada combinação **preferência × destino**. Sem essas interações, o ranking seria igual para todos.
-- **Validação:** treino, validação e teste separados **por viajante**, ou seja, o modelo é avaliado em pessoas que ele nunca viu.
+- Alvo: Sim = 1 e Não = 0. As respostas "Talvez" não entram no treino.
+- Variáveis: respostas do formulário em formato binário, destino e interações entre preferência e destino. Sem as interações, o ranking seria igual para todos os usuários.
+- Regularização L2, com o parâmetro `C` escolhido pela AUC na validação.
+- Treino, validação e teste separados por viajante.
+- Métricas e artefatos registrados no MLflow.
 
-### Regras aplicadas após o modelo
+Após o modelo, três regras são aplicadas ao ranking:
 
-1. **Contra os destinos campeões:** o ranking usa `probabilidade da pessoa − 0,5 × taxa de Sim geral do destino`, para que destinos que agradam todo mundo não dominem as recomendações.
-2. **Diversidade:** no máximo 1 destino por país no Top 3.
-3. **Região escolhida:** se a pessoa seleciona regiões específicas, o Top 3 mostra apenas destinos dessas regiões.
+1. Penalização de destinos muito populares: `score = probabilidade − 0,5 × taxa de aprovação geral do destino`.
+2. No máximo um destino por país no Top 3.
+3. Quando o usuário escolhe regiões específicas, apenas destinos dessas regiões são recomendados.
 
-### Resultados (viajantes de teste)
+### Resultados
 
-O app mostra um **Top 3**. Escolhemos 3 posições por ser o melhor equilíbrio entre precisão e chance de acerto (comparação abaixo).
+Avaliação nos viajantes do conjunto de teste:
 
-| Métrica | Modelo (com regras) | Popularidade | Aleatório |
+| Métrica | Modelo | Popularidade | Aleatório |
 |---|---:|---:|---:|
-| Precisão@3 — dos 3 recomendados, quantos a pessoa aprovaria | **52,7%** | 52,6% | 36,2% |
-| Acerto@3 — pessoas com pelo menos 1 "Sim" no Top 3 | **70,0%** | 69,3% | 60,4% |
-| Destinos diferentes recomendados (teste) | **504** | 3 | — |
-| AUC | **0,737** | 0,708 | 0,499 |
-| Acurácia | **69,6%** | — | 63,4%* |
+| Precisão@3 | 52,7% | 52,6% | 36,2% |
+| Acerto@3 (ao menos 1 aprovação no Top 3) | 70,0% | 69,3% | 60,4% |
+| AUC | 0,737 | 0,708 | 0,499 |
+| Destinos distintos recomendados | 504 | 3 | — |
 
-\* Acurácia de responder "Não" para todos.
+O modelo tem precisão equivalente à recomendação por popularidade, mas recomenda 504 destinos diferentes, contra 3. O Top 3 foi escolhido por equilibrar precisão e taxa de acerto: no Top 5, o acerto sobe 3 pontos e a precisão cai 4.
 
-**Por que Top 3:**
+As métricas consideram apenas os destinos que cada viajante avaliou (cerca de 10 por pessoa), o que torna a estimativa conservadora.
 
-| | Top 1 | Top 3 | Top 5 |
-|---|---:|---:|---:|
-| Precisão | 57,2% | 52,7% | 48,6% |
-| Acerto (≥ 1 "Sim") | 57,2% | 70,0% | 73,1% |
+## Como executar
 
-Do Top 3 para o Top 5, o acerto sobe só 3 pontos e a precisão cai 4.
+1. No Databricks, crie uma Git folder com a URL deste repositório (*Workspace > Create > Git folder*).
+2. Execute os notebooks na ordem, de `01` a `05`, com computação Serverless.
+3. Caso o workspace não tenha acesso à internet, envie `Stravl_Travel_Preference_Data.csv` e `destination_ids.txt` para o Volume `/Volumes/workspace/default/stravl_raw`.
+4. Para testar uma recomendação, abra o `05_modelo_recomendacao`, preencha os parâmetros do formulário e execute a seção 9.
 
-As regras contra destinos campeões custam pouco: sem elas, a precisão@3 seria 53,9%, mas apenas 189 destinos diferentes apareceriam nas recomendações (contra 504 com as regras).
+O catálogo e o schema podem ser alterados nas variáveis `CATALOGO` e `SCHEMA`, no início de cada notebook.
 
-As métricas consideram apenas os cerca de 10 destinos que cada viajante avaliou, e não o catálogo inteiro — uma estimativa conservadora.
+## CI/CD
 
----
+A proposta de integração e entrega contínua está descrita em [docs/ARQUITETURA_CICD.md](docs/ARQUITETURA_CICD.md). Ela inclui testes com GitHub Actions, deploy com Databricks Asset Bundles, infraestrutura com Terraform e promoção do modelo condicionada à Precisão@3 ser igual ou superior à da recomendação por popularidade.
 
 ## Limitações
 
-- A maioria dos viajantes avaliou apenas 10 destinos, o que limita o quanto o modelo aprende sobre cada pessoa.
-- O ganho sobre a recomendação por popularidade é pequeno: destinos como Grécia, Itália e Japão agradam a quase todos.
-- A pergunta de regiões foi respondida por apenas 21% dos viajantes.
-- A pergunta de estação indica **quando** a pessoa viaja, no calendário do hemisfério norte (a maioria dos respondentes é dos EUA), e não o clima desejado. Por isso o formulário mostra o **período do ano** (Dez–Fev, Mar–Mai, Jun–Ago, Set–Nov) em vez do nome da estação.
-- O orçamento é em **dólares, por pessoa e por noite**, conforme o formulário original.
+- A maioria dos viajantes avaliou apenas 10 destinos.
+- A pergunta sobre regiões foi respondida por 21% dos viajantes.
+- A estação do ano segue o calendário do hemisfério norte, já que a maioria dos respondentes é dos EUA. Por isso a aplicação exibe o período do ano.
+- O orçamento está em dólares, por pessoa e por noite.
+- A base não contém atributos dos destinos, como clima e custo.
 
 ## Próximos passos
 
-- Filtragem colaborativa usando os swipes ("quem recusou X também recusa Y").
-- Atributos dos destinos (clima por mês, custo médio, tipo de paisagem).
-- Uso do feedback dos usuários no app para re-treinar o modelo.
-
----
+- Filtragem colaborativa a partir das avaliações.
+- Inclusão de atributos dos destinos.
+- Uso do feedback da aplicação para retreinar o modelo.
+- Implementação do pipeline de CI/CD.
 
 ## Equipe
 
-- [Nome 1] — [responsabilidade]
-- [Nome 2] — [responsabilidade]
-- [Nome 3] — [responsabilidade]
+- Renato de Oliveira de Souza
+- Luciano Gomes da Silva
+- José Carlos Marques
