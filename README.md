@@ -163,6 +163,15 @@ Avaliação nos viajantes do conjunto de teste:
 
 O modelo tem precisão equivalente à recomendação por popularidade, mas recomenda 504 destinos diferentes, contra 3. O ganho do projeto está na personalização e na diversidade, e não em um aumento de precisão.
 
+### Modelo escolhido
+
+A regressão logística com interações entre preferência e destino foi escolhida como modelo final pelos seguintes motivos:
+
+- Supera as duas referências em AUC e em Acerto@3, com Precisão@3 equivalente à da popularidade.
+- É a única abordagem que personaliza a recomendação: perfis diferentes recebem destinos diferentes, enquanto a popularidade entrega os mesmos 3 destinos para todos.
+- É interpretável. Os pesos do modelo mostram quais preferências mais influenciaram cada recomendação, e essa explicação aparece para o usuário na aplicação.
+- É leve. Os pesos são exportados e o cálculo roda direto no navegador, sem necessidade de servidor.
+
 ### Tamanho da lista
 
 | | Top 1 | Top 3 | Top 5 |
